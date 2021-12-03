@@ -1,9 +1,14 @@
 package de.einfachhans.AdvancedImagePicker;
 
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.ThumbnailUtils;
 import android.net.Uri;
+import android.provider.MediaStore;
 import android.util.Base64;
+import android.util.Size;
+import android.os.Build;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -13,18 +18,24 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.File;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import gun0912.tedimagepicker.builder.TedImagePicker;
 
 public class AdvancedImagePicker extends CordovaPlugin {
 
     private CallbackContext _callbackContext;
+
+    private String _thumbPrefix = "advanced_image_picker_";
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
@@ -145,6 +156,9 @@ public class AdvancedImagePicker extends CordovaPlugin {
             } else {
                 resultMap.put("src", uri.toString());
             }
+            // Deal with thumbs
+            final String thumbUri = this.getThumbPath(uri);
+            resultMap.put("thumb", thumbUri);
             result.put(new JSONObject(resultMap));
         }
         this._callbackContext.success(result);
@@ -167,6 +181,43 @@ public class AdvancedImagePicker extends CordovaPlugin {
         final InputStream imageStream = this.cordova.getContext().getContentResolver().openInputStream(uri);
         final Bitmap selectedImage = BitmapFactory.decodeStream(imageStream);
         return encodeImage(selectedImage, asJpeg);
+    }
+
+    private String getThumbPath(Uri uri) {
+        try {
+            // Get thumbnail image
+            final Bitmap bitmap;
+            if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)) {
+                bitmap = this.cordova.getContext().getContentResolver().loadThumbnail(uri, new Size(100, 100), null);
+            } else {
+                bitmap = MediaStore.Images.Thumbnails.getThumbnail(this.cordova.getContext().getContentResolver(), Long.parseLong(uri.getLastPathSegment()), MediaStore.Images.Thumbnails.MINI_KIND, null);
+            }
+
+            // Compress image
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos);
+
+            // Create file
+            final File outputFile = this.createNewTempImage();
+
+            // Write file to disk
+            try (OutputStream outputStream = new FileOutputStream(outputFile)) {
+                baos.writeTo(outputStream);
+            }
+
+            // Return URI
+            return outputFile.toURI().toString();
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            return "";
+        }
+    }
+
+    private File createNewTempImage() throws IOException {
+        final String id = UUID.randomUUID().toString();
+        final String fileName = this._thumbPrefix + id;
+        return File.createTempFile(fileName, ".jpg", this.cordova.getContext().getCacheDir());
     }
 
     private String encodeImage(Bitmap bm, boolean asJpeg) {

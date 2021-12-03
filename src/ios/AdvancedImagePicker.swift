@@ -113,16 +113,23 @@ import YPImagePicker
         self.viewController.present(picker, animated: true, completion: nil);
     }
 
+    func getDocumentsDirectory() -> URL {
+        let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        let documentsDirectory = paths[0]
+        return documentsDirectory
+    }
+
     func handleResult(items: [YPMediaItem], asBase64: Bool, asJpeg: Bool) {
         var array = [] as Array;
         for item in items {
             switch item {
             case .photo(let photo):
-                let encodedImage = self.encodeImage(image: photo.image, asBase64: asBase64, asJpeg: asJpeg);
                 array.append([
                     "type": "image",
                     "isBase64": asBase64,
-                    "src": encodedImage
+                    "src": photo.url?.absoluteString ?? self.encodeImage(image: photo.image, asBase64: asBase64, asJpeg: asJpeg),
+                    "thumb": self.getThumb(image: photo.image),
+                    "date": Int(photo.asset?.creationDate?.timeIntervalSince1970 ?? 0)
                 ]);
                 break;
             case .video(let video):
@@ -139,7 +146,9 @@ import YPImagePicker
                 array.append([
                     "type": "video",
                     "isBase64": asBase64,
-                    "src": resultSrc
+                    "src": resultSrc,
+                    "thumb": self.getThumb(image: video.thumbnail),
+                    "date": Int(video.asset?.creationDate?.timeIntervalSince1970 ?? 0)
                 ]);
                 break;
             }
@@ -151,7 +160,7 @@ import YPImagePicker
     func encodeImage(image: UIImage, asBase64: Bool, asJpeg: Bool) -> String {
         let imageData: NSData;
         if(asJpeg) {
-            imageData = image.jpegData(compressionQuality: 0.8)! as NSData;
+            imageData = image.jpegData(compressionQuality: 0.7)! as NSData;
         } else {
             imageData = image.pngData()! as NSData;
         }
@@ -168,9 +177,20 @@ import YPImagePicker
         }
     }
 
-    func tempFilePath(ext: String = "png") -> URL {
-        let filename: String = self.OWN_PREFIX! + UUID().uuidString;
-        var contentUrl = URL(fileURLWithPath: NSTemporaryDirectory());
+    func getThumb(image: UIImage) -> String {
+        let imageData = image.jpegData(compressionQuality: 0.2)! as NSData;
+        let filePath = self.tempFilePath(ext: "jpg", suffix: "-thumb");
+        do {
+            try imageData.write(to: filePath, options: .atomic);
+            return filePath.absoluteString;
+        } catch {
+            return error.localizedDescription;
+        }
+    }
+
+    func tempFilePath(ext: String = "png", suffix: String = "") -> URL {
+        let filename: String = self.OWN_PREFIX! + UUID().uuidString + suffix;
+        var contentUrl = self.getDocumentsDirectory();
         contentUrl.appendPathComponent(filename);
         contentUrl.appendPathExtension(ext);
         return contentUrl;
@@ -204,11 +224,12 @@ import YPImagePicker
     @objc(cleanup:)
     func cleanup(command: CDVInvokedUrlCommand) {
         do {
-            let tmpFiles: [String] = try FileManager().contentsOfDirectory(atPath: NSTemporaryDirectory());
+            let docsDirString = self.getDocumentsDirectory().absoluteString;
+            let tmpFiles: [String] = try FileManager().contentsOfDirectory(atPath: docsDirString);
             for tmpFile in tmpFiles {
                 // only delete files from this plugin:
                 if(tmpFile.hasPrefix(self.OWN_PREFIX!)) {
-                    try FileManager().removeItem(atPath: NSTemporaryDirectory() + tmpFile)
+                    try FileManager().removeItem(atPath: docsDirString + tmpFile)
                 }
             }
         } catch {
